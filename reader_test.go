@@ -21,6 +21,7 @@ const readTest3 = `From test@example.com Wed Jan 27 02:32:22 2021
 `
 
 // should stop reading when FROM is found
+// we can then re-use the reader to read the remainder
 const readTest4 = `From test@example.com Wed Jan 27 02:32:22 2021
 >>>>From this should be unescaped
 12345678
@@ -72,15 +73,18 @@ func TestReadHeader(t *testing.T) {
 	fmt.Print(result)
 }
 
-
 func TestReadLastLine(t *testing.T) {
 	buf := make([]byte, 8)
 	var b bytes.Buffer
 	r := NewReader(bytes.NewReader([]byte(readTest3)))
-	_, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+	i, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
 
-	if err != InvalidFormat {
+	if err != nil {
 		t.Error(err)
+	}
+
+	if i != 42 {
+		t.Error("expecting 42 characters")
 	}
 
 	err, from, time := r.Header()
@@ -93,6 +97,48 @@ func TestReadLastLine(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	err = r.Close()
+	if err != nil {
+		t.Error(err)
+	}
+	result := b.String()
+	fmt.Print(result)
+}
+
+func TestReadMulti(t *testing.T) {
+	buf := make([]byte, 8)
+	var b bytes.Buffer
+	r := NewReader(bytes.NewReader([]byte(readTest4)))
+	i, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+
+	if err != nil {
+		t.Error(err)
+	}
+	if i != 42 {
+		t.Error("expecting 42 characters")
+	}
+
+	err, from, time := r.Header()
+	if time.Unix() != 1611714742 {
+		t.Error("invalid date")
+	}
+	if from != "test@example.com" {
+		t.Error("expecting test@example.com in header")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+
+	b.Reset()
+
+	i, err = io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+	if err != nil {
+		t.Error(err)
+	}
+	if i != 42 {
+		t.Error("expecting 42 characters")
+	}
+
 	err = r.Close()
 	if err != nil {
 		t.Error(err)
