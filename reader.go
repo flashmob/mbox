@@ -39,6 +39,7 @@ const (
 	readStateOutputFrom
 	readStateHeaderMagicEOF
 	readStateEnd
+	readStateNextRecord
 )
 
 var InvalidFormat = errors.New("invalid file format")
@@ -75,6 +76,11 @@ func (r *decoder) Read(p []byte) (int, error) {
 	}
 	for r.iPos < r.iN && i < len(p) {
 		switch r.state {
+		case readStateNextRecord:
+			// a header indicating a boundary was detected in the previous read
+			// we can recycle the reader and continue with reading a new message
+			r.header.Reset()
+			r.state = readStateHeaderValues
 		case readStateHeaderMagic, readStateHeaderMagicEOF:
 			// match the "From " magic string
 			if r.input[r.iPos] == header[r.matches] {
@@ -85,11 +91,10 @@ func (r *decoder) Read(p []byte) (int, error) {
 					r.state = readStateHeaderValues
 					r.matches = 0
 					if lastState == readStateHeaderMagicEOF {
-						// it's a new record, we return with an io.EOF
-						// This is because if we match another "From "while in that state, it means
-						// we are at a boundary.
+						// a boundary was detected , we return with an io.EOF
 						// Note that the state is not reset, so the reader can be recycled to continue
 						// reading the next record.
+						r.state = readStateNextRecord
 						return i, io.EOF
 					}
 				}
@@ -116,12 +121,15 @@ func (r *decoder) Read(p []byte) (int, error) {
 				r.matches = 0
 				r.stuffingCount = 0
 				r.state = readStateStartLine
-				r.iPos += length - 1
+				//r.iPos += length - 1
+				r.iPos += i + 1
 				continue
 			}
+
 			r.header.Write(r.input[r.iPos : r.iPos+length])
 			r.iPos += length
 		case readStateStartLine:
+			// current pos is after a \n
 			// match >+
 			// else go to state readStateOutputFrom
 			if r.input[r.iPos] == stuffing[0] {
@@ -159,7 +167,11 @@ func (r *decoder) Read(p []byte) (int, error) {
 			} else if r.input[r.iPos] == header[r.matches-1] {
 				r.matches++
 			} else {
-				r.state = readStateCopy
+				if r.stuffingCount == 0 && r.matches == 0 {
+					r.state = readStateCopy
+				} else {
+					r.state = readStateOutputFrom
+				}
 				continue
 			}
 			r.iPos++
@@ -167,6 +179,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			// output >+"From" pattern
 			// first the stuffingCount, then the matches
 			// if the next char is not eol then move to copy state, else readStateStartLine
+			// if the full pattern didn't match, output only the partial match
 			length := len(header)
 			for i < len(p) {
 				if r.stuffingCount > 0 {
@@ -206,6 +219,11 @@ func (r *decoder) Read(p []byte) (int, error) {
 		case readStateEnd:
 			// eof state
 			// don't do anything here, it can exit if io.EOF is read
+			if r.iPos < r.iN {
+				// there's still more input, thus we won't get an EOF
+				// but it might be the end if we read in the magic "From "
+				r.state = readStateHeaderMagicEOF
+			}
 		}
 	}
 	return n, nil
