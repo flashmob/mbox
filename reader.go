@@ -22,6 +22,7 @@ type decoder struct {
 
 	matches       int
 	stuffingCount int
+	hPos          int
 
 	header strings.Builder
 }
@@ -74,6 +75,13 @@ func (r *decoder) Read(p []byte) (int, error) {
 		}
 		r.iPos = 0 // reset
 	}
+	if r.iN == 0 && r.err == io.EOF {
+		// nothing to process
+		// (this is an edge case where the reader could be recycled, but no more input remains to be read)
+		// TestReadMSingle tests for this case
+		return i, io.EOF
+	}
+
 	for r.iPos < r.iN && i < len(p) {
 		switch r.state {
 		case readStateNextRecord:
@@ -111,6 +119,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if len(p)-i > 0 {
 				p[i] = '\n'
 				i++
+				r.hPos = 0
 				r.state = readStateOutputFrom
 			}
 		case readStateHeaderValues:
@@ -137,6 +146,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			} else if r.stuffingCount > 0 && r.input[r.iPos] == header[0] {
 				// keep matching "From " in another state
 				r.matches++
+				r.iPos++
 				r.state = readStateMatchFrom
 				continue
 
@@ -148,6 +158,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			} else {
 				// output
 				if r.stuffingCount > 0 {
+					r.hPos = 0
 					r.state = readStateOutputFrom
 				} else {
 					r.state = readStateCopy // copy state
@@ -162,14 +173,16 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if r.matches == len(header) {
 				r.stuffingCount-- // strip a single ">". Assuming that r.stuffingCount > 9
 				r.iPos++
+				r.hPos = 0
 				r.state = readStateOutputFrom
 				continue
-			} else if r.input[r.iPos] == header[r.matches-1] {
+			} else if r.input[r.iPos] == header[r.matches] {
 				r.matches++
 			} else {
 				if r.stuffingCount == 0 && r.matches == 0 {
 					r.state = readStateCopy
 				} else {
+					r.hPos = 0
 					r.state = readStateOutputFrom
 				}
 				continue
@@ -180,7 +193,6 @@ func (r *decoder) Read(p []byte) (int, error) {
 			// first the stuffingCount, then the matches
 			// if the next char is not eol then move to copy state, else readStateStartLine
 			// if the full pattern didn't match, output only the partial match
-			length := len(header)
 			for i < len(p) {
 				if r.stuffingCount > 0 {
 					p[i] = '>'
@@ -188,15 +200,16 @@ func (r *decoder) Read(p []byte) (int, error) {
 					i++
 					n++
 				} else if r.matches > 0 {
-					p[i] = header[length-r.matches]
+					p[i] = header[r.hPos]
+					r.hPos++
 					r.matches--
 					i++
 					n++
+				} else {
+					break
 				}
 			}
-			if r.stuffingCount == 0 && r.matches == 0 {
-				r.state = readStateCopy
-			}
+			r.state = readStateCopy
 		case readStateCopy:
 			// copy state
 			// scan until eol
@@ -230,6 +243,10 @@ func (r *decoder) Read(p []byte) (int, error) {
 }
 
 func (r *decoder) Close() error {
+	r.header.Reset()
+	r.iN = 0
+	r.iPos = 0
+	r.state = readStateHeaderMagic
 	return nil
 }
 
