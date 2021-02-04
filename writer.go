@@ -113,7 +113,6 @@ func (w *encoder) Write(p []byte) (int, error) {
 				continue
 			}
 			w.state = writeStateCopy
-
 		case writeStateCopy:
 			// copy until the end of the line, or end of the data
 			length := len(p) - w.pos
@@ -128,7 +127,6 @@ func (w *encoder) Write(p []byte) (int, error) {
 				return w.n, err
 			}
 			w.pos += int(n64)
-
 		case writeStateMatchStuffing:
 			// count '>' (already matched >)
 			if p[w.pos] == stuffing[0] {
@@ -173,7 +171,6 @@ func (w *encoder) Write(p []byte) (int, error) {
 				w.state = writeStateCopy
 				continue
 			}
-
 			if p[w.pos] == header[w.matches] {
 				w.matches++
 				w.pos++
@@ -182,14 +179,12 @@ func (w *encoder) Write(p []byte) (int, error) {
 			}
 			// not matched
 			// do not escape, write out partial match + byte matched
-
 			n64, err = io.Copy(w.w, bytes.NewReader([]byte(header[:w.matches])))
 			// (don't update w.n)
 			if err != nil {
 				return w.n, err
 			}
 			// (dont update w.pos += int(n64) )
-
 			n, err = w.writeByte(p[w.pos])
 			w.n += n
 			if err != nil {
