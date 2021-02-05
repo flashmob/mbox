@@ -22,15 +22,14 @@ import (
 
 const header = "From " // size: 5
 const headerEscaped = ">From "
-const stuffing = ">"
 const spSize = 32
 
-var stuffingPool [spSize]byte
+var escapePool [spSize]byte
 
 func init() {
-	// pre-allocate some stuffings, for faster copying
-	for i := range stuffingPool {
-		stuffingPool[i] = '>'
+	// pre-allocate some escapes, for faster copying
+	for i := range escapePool {
+		escapePool[i] = escape
 	}
 }
 
@@ -96,7 +95,7 @@ func (w *encoder) Write(p []byte) (int, error) {
 		case writeStateStartLine:
 			// only in this state if we're
 			// on the start of a new line / start of message.
-			if p[w.pos] == stuffing[0] {
+			if p[w.pos] == escape {
 				// keep counting how many >
 				w.stuffingCount = 1
 				// we don't write it out yet, but move on to next & let caller know we got it
@@ -129,7 +128,7 @@ func (w *encoder) Write(p []byte) (int, error) {
 			w.pos += int(n64)
 		case writeStateMatchStuffing:
 			// count '>' (already matched >)
-			if p[w.pos] == stuffing[0] {
+			if p[w.pos] == escape {
 				w.stuffingCount++
 				w.pos++
 				continue
@@ -140,7 +139,7 @@ func (w *encoder) Write(p []byte) (int, error) {
 				if toCopy > spSize {
 					toCopy = spSize
 				}
-				n64, err = io.Copy(w.w, bytes.NewReader(stuffingPool[0:toCopy]))
+				n64, err = io.Copy(w.w, bytes.NewReader(escapePool[0:toCopy]))
 				w.stuffingCount -= int(n64)
 				w.n += int(n64)
 				if err != nil {
@@ -235,7 +234,7 @@ func (w *encoder) Close() error {
 			if toCopy > spSize {
 				toCopy = spSize
 			}
-			n64, err := io.Copy(w.w, bytes.NewReader(stuffingPool[0:toCopy]))
+			n64, err := io.Copy(w.w, bytes.NewReader(escapePool[0:toCopy]))
 			w.stuffingCount -= int(n64)
 			w.n += int(n64)
 			if err != nil {

@@ -20,9 +20,9 @@ type decoder struct {
 
 	err error
 
-	matches       int
-	stuffingCount int
-	hPos          int
+	matches     int
+	escapeCount int
+	hPos        int
 
 	header strings.Builder
 }
@@ -31,18 +31,29 @@ type readState int
 
 // possible values for state
 const (
-	// readStateHeaderMagic begin matching
+	// readStateHeaderMagic begin matching the magic "From " string
 	readStateHeaderMagic readState = iota
+	// readStateHeaderValues continue reading the header values until eol
 	readStateHeaderValues
+	// readStateStartLine reached the start of a line
 	readStateStartLine
+	// readStatePutEol place an end of line (eol) marker
 	readStatePutEol
+	// readStateCopy keep copying until the eol
 	readStateCopy
+	// readStateMatchFrom match a potential "From "
 	readStateMatchFrom
+	// readStateOutputFrom output a "From ", can be escaped with ">"
 	readStateOutputFrom
+	// readStateHeaderMagicEOF same as readStateHeaderMagic but we can return with io.EOF
 	readStateHeaderMagicEOF
+	// readStateEnd at the end of a boundary, we can return with an io.EOF
 	readStateEnd
+	// readStateNextRecord entering a new message
 	readStateNextRecord
 )
+
+const escape = '>'
 
 // InvalidFormat error is returned when the file format is invalid
 var InvalidFormat = errors.New("invalid file format")
@@ -62,7 +73,6 @@ func (r *decoder) Read(p []byte) (int, error) {
 	// n counts how many bytes were placed on p
 	var i, n int
 	if r.input == nil {
-		// todo, get them from a pool?
 		r.input = make([]byte, len(p))
 	}
 	if r.iPos == r.iN { // at the end or no input?
@@ -123,7 +133,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 		case readStatePutEol:
 			// an eol was previously matched, it's not eof, so write it out
 			if len(p)-i > 0 {
-				p[i] = '\n'
+				p[i] = newLine
 				i++
 				r.state = readStateOutputFrom
 			}
@@ -133,7 +143,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if i := bytes.Index(r.input[r.iPos:r.iPos+length], eol); i != -1 {
 				r.header.Write(r.input[r.iPos : r.iPos+i])
 				r.matches = 0
-				r.stuffingCount = 0
+				r.escapeCount = 0
 				r.state = readStateStartLine
 				r.iPos += i + 1
 				continue
@@ -144,23 +154,23 @@ func (r *decoder) Read(p []byte) (int, error) {
 			// current pos is after a \n
 			// match >+
 			// else go to state readStateOutputFrom
-			if r.input[r.iPos] == stuffing[0] {
-				r.stuffingCount++
-			} else if r.stuffingCount > 0 && r.input[r.iPos] == header[0] {
+			if r.input[r.iPos] == escape {
+				r.escapeCount++
+			} else if r.escapeCount > 0 && r.input[r.iPos] == header[0] {
 				// keep matching "From " in another state
 				r.matches++
 				r.iPos++
 				r.state = readStateMatchFrom
 				continue
 
-			} else if r.stuffingCount == 0 && r.input[r.iPos] == newLine {
+			} else if r.escapeCount == 0 && r.input[r.iPos] == newLine {
 				// // eof state, we can pass io.EOF back to caller in this state
 				r.iPos++
 				r.state = readStateEnd
 				continue
 			} else {
 				// output
-				if r.stuffingCount > 0 { // tested by TestRead6
+				if r.escapeCount > 0 { // tested by TestRead6
 					r.state = readStateOutputFrom
 				} else {
 					r.state = readStateCopy // copy state
@@ -170,17 +180,17 @@ func (r *decoder) Read(p []byte) (int, error) {
 			r.iPos++
 		case readStateMatchFrom:
 			// match >+"From " that's been escaped
-			// if entire "From " matched, then we can just --stuffingCount
+			// if entire "From " matched, then we can just --escapeCount
 			// goto state readStateOutputFrom
 			if r.matches == len(header) {
-				r.stuffingCount-- // strip a single ">". Assuming that r.stuffingCount > 9
+				r.escapeCount-- // strip a single ">". Assuming that r.escapeCount > 9
 				r.iPos++
 				r.state = readStateOutputFrom
 				continue
 			} else if r.input[r.iPos] == header[r.matches] {
 				r.matches++
 			} else {
-				if r.stuffingCount == 0 && r.matches == 0 {
+				if r.escapeCount == 0 && r.matches == 0 {
 					r.state = readStateCopy
 				} else {
 					r.state = readStateOutputFrom
@@ -190,13 +200,13 @@ func (r *decoder) Read(p []byte) (int, error) {
 			r.iPos++
 		case readStateOutputFrom:
 			// output >+"From" pattern
-			// first the stuffingCount, then the matches
+			// first the escapeCount, then the matches
 			// if the next char is not eol then move to copy state, else readStateStartLine
 			// if the full pattern didn't match, output only the partial match
 			for i < len(p) {
-				if r.stuffingCount > 0 {
-					p[i] = '>'
-					r.stuffingCount--
+				if r.escapeCount > 0 {
+					p[i] = escape
+					r.escapeCount--
 					i++
 					n++
 				} else if r.matches > 0 {
@@ -225,7 +235,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if i := bytes.Index(r.input[r.iPos:r.iPos+length], eol); i != -1 {
 				length = i + 1
 				r.matches = 0
-				r.stuffingCount = 0
+				r.escapeCount = 0
 				r.state = readStateStartLine
 			}
 			copied := copy(p[i:], r.input[r.iPos:r.iPos+length])
