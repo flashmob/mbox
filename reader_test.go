@@ -42,6 +42,30 @@ Fromtest@example.com Wed Jan 27 02:32:22 2021
 
 `
 
+// removed "From"
+const readTest6 = `From test@example.com Wed Jan 27 02:32:22 2021
+>>>> this should be unescaped
+12345678
+
+`
+
+// invalid header
+const readTest7 = `xromtest@example.com Wed Jan 27 02:32:22 2021
+>>>> this should be unescaped
+12345678
+
+`
+
+// invalid header 2 (bad date)
+const readTest8 = `From test@example.com Wed kjgghghghg
+>>>> this should be unescaped
+12345678
+
+`
+
+const readTest9 = `Fro
+`
+
 func TestReadMagic(t *testing.T) {
 	buf := make([]byte, 8)
 	var b bytes.Buffer
@@ -205,4 +229,81 @@ func TestReadMSingle(t *testing.T) {
 	}
 	result = b.String()
 	fmt.Print("[" + result + "]")
+}
+
+// Only the stuffing >>> and no "From "
+func TestRead6(t *testing.T) {
+	buf := make([]byte, 8)
+	var b bytes.Buffer
+	r := NewReader(bytes.NewReader([]byte(readTest6)))
+	i, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if i != 39 {
+		t.Error("expecting 39 characters")
+	}
+
+	err, from, time := r.Header()
+	if time.Unix() != 1611714742 {
+		t.Error("invalid date")
+	}
+	if from != "test@example.com" {
+		t.Error("expecting test@example.com in header")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+	err = r.Close()
+	if err != nil {
+		t.Error(err)
+	}
+	//result := b.String()
+	//fmt.Print(result)
+}
+
+func TestReadBadHeader(t *testing.T) {
+	buf := make([]byte, 8)
+	var b bytes.Buffer
+	r := NewReader(bytes.NewReader([]byte(readTest7)))
+	_, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+
+	if err != InvalidFormat {
+		t.Error(err)
+	}
+
+}
+
+func TestReadBadHeader2(t *testing.T) {
+	buf := make([]byte, 8)
+	var b bytes.Buffer
+	r := NewReader(bytes.NewReader([]byte(readTest8)))
+	_, err := io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	err, _, _ = r.Header()
+	if err != InvalidHeader {
+		t.Error("expecting InvalidHeader error")
+	}
+
+	err = r.Close()
+	if err != nil {
+		t.Error(err)
+	}
+
+	b.Reset()
+
+	r.r = NewReader(bytes.NewReader([]byte(readTest9)))
+
+	_, err = io.CopyBuffer(struct{ io.Writer }{&b}, struct{ io.Reader }{r}, buf)
+
+	if err != InvalidFormat {
+		t.Error("InvalidFormat error expected")
+	}
+
 }

@@ -119,7 +119,6 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if len(p)-i > 0 {
 				p[i] = '\n'
 				i++
-				r.hPos = 0
 				r.state = readStateOutputFrom
 			}
 		case readStateHeaderValues:
@@ -130,11 +129,9 @@ func (r *decoder) Read(p []byte) (int, error) {
 				r.matches = 0
 				r.stuffingCount = 0
 				r.state = readStateStartLine
-				//r.iPos += length - 1
 				r.iPos += i + 1
 				continue
 			}
-
 			r.header.Write(r.input[r.iPos : r.iPos+length])
 			r.iPos += length
 		case readStateStartLine:
@@ -157,8 +154,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 				continue
 			} else {
 				// output
-				if r.stuffingCount > 0 {
-					r.hPos = 0
+				if r.stuffingCount > 0 { // tested by TestRead6
 					r.state = readStateOutputFrom
 				} else {
 					r.state = readStateCopy // copy state
@@ -173,7 +169,6 @@ func (r *decoder) Read(p []byte) (int, error) {
 			if r.matches == len(header) {
 				r.stuffingCount-- // strip a single ">". Assuming that r.stuffingCount > 9
 				r.iPos++
-				r.hPos = 0
 				r.state = readStateOutputFrom
 				continue
 			} else if r.input[r.iPos] == header[r.matches] {
@@ -182,7 +177,6 @@ func (r *decoder) Read(p []byte) (int, error) {
 				if r.stuffingCount == 0 && r.matches == 0 {
 					r.state = readStateCopy
 				} else {
-					r.hPos = 0
 					r.state = readStateOutputFrom
 				}
 				continue
@@ -208,6 +202,9 @@ func (r *decoder) Read(p []byte) (int, error) {
 				} else {
 					break
 				}
+			}
+			if r.matches == 0 {
+				r.hPos = 0
 			}
 			r.state = readStateCopy
 		case readStateCopy:
@@ -258,7 +255,9 @@ func (r *decoder) Header() (err error, from string, date time.Time) {
 			if len(s)-1 > i+1 {
 				date, err = time.Parse(time.ANSIC, s[i+1:])
 			}
-			return
+			if err == nil {
+				return
+			}
 		}
 	}
 	err = InvalidHeader
