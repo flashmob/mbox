@@ -31,6 +31,7 @@ type readState int
 
 // possible values for state
 const (
+	// readStateHeaderMagic begin matching
 	readStateHeaderMagic readState = iota
 	readStateHeaderValues
 	readStateStartLine
@@ -43,15 +44,20 @@ const (
 	readStateNextRecord
 )
 
+// InvalidFormat error is returned when the file format is invalid
 var InvalidFormat = errors.New("invalid file format")
+
+// InvalidHeader error is returned when Header() date is invalid
 var InvalidHeader = errors.New("invalid header")
 
+// NewReader returns an io.Reader, ready to decode mbox streams
 func NewReader(r io.Reader) *decoder {
 	d := new(decoder)
 	d.r = r
 	return d
 }
 
+// Read implements io.Reader
 func (r *decoder) Read(p []byte) (int, error) {
 	// n counts how many bytes were placed on p
 	var i, n int
@@ -239,6 +245,7 @@ func (r *decoder) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// Close closes the stream and resets all state
 func (r *decoder) Close() error {
 	r.header.Reset()
 	r.iN = 0
@@ -247,6 +254,8 @@ func (r *decoder) Close() error {
 	return nil
 }
 
+// Header returns the parsed header values, from and date
+// err is returned if the date is invalid (Not time.ANSIC)
 func (r *decoder) Header() (err error, from string, date time.Time) {
 	if r.header.Len() > 0 {
 		s := r.header.String()

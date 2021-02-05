@@ -2,7 +2,6 @@ package mbox
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"testing"
 )
@@ -209,8 +208,8 @@ func TestReadMSingle(t *testing.T) {
 		t.Error(err)
 	}
 
-	result := b.String()
-	fmt.Print("[" + result + "]")
+	//result := b.String()
+	//fmt.Print("[" + result + "]")
 
 	b.Reset()
 
@@ -227,8 +226,8 @@ func TestReadMSingle(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	result = b.String()
-	fmt.Print("[" + result + "]")
+	//result = b.String()
+	//fmt.Print("[" + result + "]")
 }
 
 // Only the stuffing >>> and no "From "

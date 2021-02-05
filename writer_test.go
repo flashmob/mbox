@@ -2,7 +2,6 @@ package mbox
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -309,21 +308,33 @@ func TestDataPrematureEscaped2(t *testing.T) {
 	}
 }
 
-func TestDataPrematureEscaped3(*testing.T) {
+func TestDataPrematureEscaped3(t *testing.T) {
 	b := bytes.Buffer{}
 	w := NewWriter(&b)
 	w.Open("test@example.com", time.Now())
 	n, err := w.Write([]byte(test9))
+	if err != nil {
+		t.Error(err)
+	}
+	if n != 24 {
+		t.Error("Expecting 24 bytes")
+	}
 	w.Close()
-	fmt.Println(b.String(), n, err)
+	//fmt.Println(b.String(), n, err)
 }
 
 // // 33 > chars (toCopy > 32)
-func TestDataEEscapeOverflow(*testing.T) {
+func TestDataEEscapeOverflow(t *testing.T) {
 	b := bytes.Buffer{}
 	w := NewWriter(&b)
 	w.Open("test@example.com", time.Now())
 	n, err := w.Write([]byte(test10))
+	if err != nil {
+		t.Error(err)
+	}
+	if n != 90 {
+		t.Error("Expecting 90 bytes")
+	}
 	w.Close()
-	fmt.Println(b.String(), n, err)
+	//fmt.Println(b.String(), n, err)
 }
